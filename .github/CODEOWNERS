@@ -1,0 +1,25 @@
+# CODEOWNERS for gogpu/gg-svg
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Code owners are automatically requested for review when someone opens a pull request
+# that modifies code they own.
+
+# Default owner for everything in the repo
+* @kolkov
+
+# Core backend implementation
+/backend.go @kolkov
+/register.go @kolkov
+
+# Documentation
+*.md @kolkov
+
+# GitHub configuration and CI/CD
+/.github/ @kolkov
+
+# Tests
+*_test.go @kolkov
+
+# Go module files - Dependency management
+/go.mod @kolkov
+/go.sum @kolkov
