@@ -150,8 +150,8 @@ func (b *Backend) SetClip(path *gg.Path, rule recording.FillRule) {
 	b.currentClipID = clipID
 
 	// Write clip path definition
-	b.defs.WriteString(fmt.Sprintf(`<clipPath id="%s">`, clipID))
-	b.defs.WriteString(fmt.Sprintf(`<path d="%s"`, b.pathToD(path)))
+	fmt.Fprintf(&b.defs, `<clipPath id="%s">`, clipID)
+	fmt.Fprintf(&b.defs, `<path d="%s"`, b.pathToD(path))
 	if rule == recording.FillRuleEvenOdd {
 		b.defs.WriteString(` clip-rule="evenodd"`)
 	}
@@ -172,7 +172,7 @@ func (b *Backend) FillPath(path *gg.Path, brush recording.Brush, rule recording.
 	b.builder.WriteString("<path")
 	b.writeTransform()
 	b.writeClip()
-	b.builder.WriteString(fmt.Sprintf(` d="%s"`, b.pathToD(path)))
+	fmt.Fprintf(&b.builder, ` d="%s"`, b.pathToD(path))
 	b.writeFill(brush)
 	if rule == recording.FillRuleEvenOdd {
 		b.builder.WriteString(` fill-rule="evenodd"`)
@@ -190,7 +190,7 @@ func (b *Backend) StrokePath(path *gg.Path, brush recording.Brush, stroke record
 	b.builder.WriteString("<path")
 	b.writeTransform()
 	b.writeClip()
-	b.builder.WriteString(fmt.Sprintf(` d="%s"`, b.pathToD(path)))
+	fmt.Fprintf(&b.builder, ` d="%s"`, b.pathToD(path))
 	b.builder.WriteString(` fill="none"`)
 	b.writeStroke(brush, stroke)
 	b.builder.WriteString("/>")
@@ -201,8 +201,8 @@ func (b *Backend) FillRect(rect recording.Rect, brush recording.Brush) {
 	b.builder.WriteString("<rect")
 	b.writeTransform()
 	b.writeClip()
-	b.builder.WriteString(fmt.Sprintf(` x="%g" y="%g" width="%g" height="%g"`,
-		rect.MinX, rect.MinY, rect.Width(), rect.Height()))
+	fmt.Fprintf(&b.builder, ` x="%g" y="%g" width="%g" height="%g"`,
+		rect.MinX, rect.MinY, rect.Width(), rect.Height())
 	b.writeFill(brush)
 	b.builder.WriteString(` stroke="none"`)
 	b.builder.WriteString("/>")
@@ -224,12 +224,12 @@ func (b *Backend) DrawImage(img image.Image, src, dst recording.Rect, opts recor
 	b.builder.WriteString("<image")
 	b.writeTransform()
 	b.writeClip()
-	b.builder.WriteString(fmt.Sprintf(` x="%g" y="%g" width="%g" height="%g"`,
-		dst.MinX, dst.MinY, dst.Width(), dst.Height()))
-	b.builder.WriteString(fmt.Sprintf(` href="%s"`, dataURI))
+	fmt.Fprintf(&b.builder, ` x="%g" y="%g" width="%g" height="%g"`,
+		dst.MinX, dst.MinY, dst.Width(), dst.Height())
+	fmt.Fprintf(&b.builder, ` href="%s"`, dataURI)
 
 	if opts.Alpha < 1.0 {
-		b.builder.WriteString(fmt.Sprintf(` opacity="%g"`, opts.Alpha))
+		fmt.Fprintf(&b.builder, ` opacity="%g"`, opts.Alpha)
 	}
 
 	b.builder.WriteString(` preserveAspectRatio="none"`)
@@ -241,7 +241,7 @@ func (b *Backend) DrawText(s string, x, y float64, face text.Face, brush recordi
 	b.builder.WriteString("<text")
 	b.writeTransform()
 	b.writeClip()
-	b.builder.WriteString(fmt.Sprintf(` x="%g" y="%g"`, x, y))
+	fmt.Fprintf(&b.builder, ` x="%g" y="%g"`, x, y)
 
 	// Font settings
 	fontSize := 12.0
@@ -255,7 +255,7 @@ func (b *Backend) DrawText(s string, x, y float64, face text.Face, brush recordi
 			}
 		}
 	}
-	b.builder.WriteString(fmt.Sprintf(` font-size="%g"`, fontSize))
+	fmt.Fprintf(&b.builder, ` font-size="%g"`, fontSize)
 
 	// Fill color
 	b.writeFill(brush)
@@ -352,17 +352,17 @@ func (b *Backend) pathToD(path *gg.Path) string {
 	for _, elem := range path.Elements() {
 		switch e := elem.(type) {
 		case gg.MoveTo:
-			d.WriteString(fmt.Sprintf("M%g %g", e.Point.X, e.Point.Y))
+			fmt.Fprintf(&d, "M%g %g", e.Point.X, e.Point.Y)
 		case gg.LineTo:
-			d.WriteString(fmt.Sprintf("L%g %g", e.Point.X, e.Point.Y))
+			fmt.Fprintf(&d, "L%g %g", e.Point.X, e.Point.Y)
 		case gg.QuadTo:
-			d.WriteString(fmt.Sprintf("Q%g %g %g %g",
-				e.Control.X, e.Control.Y, e.Point.X, e.Point.Y))
+			fmt.Fprintf(&d, "Q%g %g %g %g",
+				e.Control.X, e.Control.Y, e.Point.X, e.Point.Y)
 		case gg.CubicTo:
-			d.WriteString(fmt.Sprintf("C%g %g %g %g %g %g",
+			fmt.Fprintf(&d, "C%g %g %g %g %g %g",
 				e.Control1.X, e.Control1.Y,
 				e.Control2.X, e.Control2.Y,
-				e.Point.X, e.Point.Y))
+				e.Point.X, e.Point.Y)
 		case gg.Close:
 			d.WriteString("Z")
 		}
@@ -377,14 +377,14 @@ func (b *Backend) writeTransform() {
 	if m.IsIdentity() {
 		return
 	}
-	b.builder.WriteString(fmt.Sprintf(` transform="matrix(%g,%g,%g,%g,%g,%g)"`,
-		m.A, m.B, m.D, m.E, m.C, m.F))
+	fmt.Fprintf(&b.builder, ` transform="matrix(%g,%g,%g,%g,%g,%g)"`,
+		m.A, m.B, m.D, m.E, m.C, m.F)
 }
 
 // writeClip writes the clip-path attribute if set.
 func (b *Backend) writeClip() {
 	if b.currentClipID != "" {
-		b.builder.WriteString(fmt.Sprintf(` clip-path="url(#%s)"`, b.currentClipID))
+		fmt.Fprintf(&b.builder, ` clip-path="url(#%s)"`, b.currentClipID)
 	}
 }
 
@@ -392,24 +392,24 @@ func (b *Backend) writeClip() {
 func (b *Backend) writeFill(brush recording.Brush) {
 	switch br := brush.(type) {
 	case recording.SolidBrush:
-		b.builder.WriteString(fmt.Sprintf(` fill="%s"`, colorToCSS(br.Color)))
+		fmt.Fprintf(&b.builder, ` fill="%s"`, colorToCSS(br.Color))
 		if br.Color.A < 1.0 {
-			b.builder.WriteString(fmt.Sprintf(` fill-opacity="%g"`, br.Color.A))
+			fmt.Fprintf(&b.builder, ` fill-opacity="%g"`, br.Color.A)
 		}
 
 	case *recording.LinearGradientBrush:
 		gradID := b.addLinearGradient(br)
-		b.builder.WriteString(fmt.Sprintf(` fill="url(#%s)"`, gradID))
+		fmt.Fprintf(&b.builder, ` fill="url(#%s)"`, gradID)
 
 	case *recording.RadialGradientBrush:
 		gradID := b.addRadialGradient(br)
-		b.builder.WriteString(fmt.Sprintf(` fill="url(#%s)"`, gradID))
+		fmt.Fprintf(&b.builder, ` fill="url(#%s)"`, gradID)
 
 	case *recording.SweepGradientBrush:
 		// SVG doesn't support sweep gradients directly
 		// Fallback to first stop color
 		if len(br.Stops) > 0 {
-			b.builder.WriteString(fmt.Sprintf(` fill="%s"`, colorToCSS(br.Stops[0].Color)))
+			fmt.Fprintf(&b.builder, ` fill="%s"`, colorToCSS(br.Stops[0].Color))
 		} else {
 			b.builder.WriteString(` fill="black"`)
 		}
@@ -424,25 +424,25 @@ func (b *Backend) writeStroke(brush recording.Brush, stroke recording.Stroke) {
 	// Stroke color
 	switch br := brush.(type) {
 	case recording.SolidBrush:
-		b.builder.WriteString(fmt.Sprintf(` stroke="%s"`, colorToCSS(br.Color)))
+		fmt.Fprintf(&b.builder, ` stroke="%s"`, colorToCSS(br.Color))
 		if br.Color.A < 1.0 {
-			b.builder.WriteString(fmt.Sprintf(` stroke-opacity="%g"`, br.Color.A))
+			fmt.Fprintf(&b.builder, ` stroke-opacity="%g"`, br.Color.A)
 		}
 
 	case *recording.LinearGradientBrush:
 		gradID := b.addLinearGradient(br)
-		b.builder.WriteString(fmt.Sprintf(` stroke="url(#%s)"`, gradID))
+		fmt.Fprintf(&b.builder, ` stroke="url(#%s)"`, gradID)
 
 	case *recording.RadialGradientBrush:
 		gradID := b.addRadialGradient(br)
-		b.builder.WriteString(fmt.Sprintf(` stroke="url(#%s)"`, gradID))
+		fmt.Fprintf(&b.builder, ` stroke="url(#%s)"`, gradID)
 
 	default:
 		b.builder.WriteString(` stroke="black"`)
 	}
 
 	// Stroke width
-	b.builder.WriteString(fmt.Sprintf(` stroke-width="%g"`, stroke.Width))
+	fmt.Fprintf(&b.builder, ` stroke-width="%g"`, stroke.Width)
 
 	// Line cap
 	switch stroke.Cap {
@@ -463,7 +463,7 @@ func (b *Backend) writeStroke(brush recording.Brush, stroke recording.Stroke) {
 	default:
 		b.builder.WriteString(` stroke-linejoin="miter"`)
 		if stroke.MiterLimit > 0 {
-			b.builder.WriteString(fmt.Sprintf(` stroke-miterlimit="%g"`, stroke.MiterLimit))
+			fmt.Fprintf(&b.builder, ` stroke-miterlimit="%g"`, stroke.MiterLimit)
 		}
 	}
 
@@ -473,9 +473,9 @@ func (b *Backend) writeStroke(brush recording.Brush, stroke recording.Stroke) {
 		for i, v := range stroke.DashPattern {
 			dashStrs[i] = fmt.Sprintf("%g", v)
 		}
-		b.builder.WriteString(fmt.Sprintf(` stroke-dasharray="%s"`, strings.Join(dashStrs, " ")))
+		fmt.Fprintf(&b.builder, ` stroke-dasharray="%s"`, strings.Join(dashStrs, " "))
 		if stroke.DashOffset != 0 {
-			b.builder.WriteString(fmt.Sprintf(` stroke-dashoffset="%g"`, stroke.DashOffset))
+			fmt.Fprintf(&b.builder, ` stroke-dashoffset="%g"`, stroke.DashOffset)
 		}
 	}
 }
@@ -490,9 +490,9 @@ func (b *Backend) addLinearGradient(br *recording.LinearGradientBrush) string {
 	length := math.Sqrt(dx*dx + dy*dy)
 
 	// Use userSpaceOnUse for absolute coordinates
-	b.defs.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&b.defs,
 		`<linearGradient id="%s" gradientUnits="userSpaceOnUse" x1="%g" y1="%g" x2="%g" y2="%g">`,
-		gradID, br.Start.X, br.Start.Y, br.End.X, br.End.Y))
+		gradID, br.Start.X, br.Start.Y, br.End.X, br.End.Y)
 
 	// Handle spread mode
 	if length > 0 {
@@ -505,11 +505,11 @@ func (b *Backend) addLinearGradient(br *recording.LinearGradientBrush) string {
 	}
 
 	for _, stop := range br.Stops {
-		b.defs.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&b.defs,
 			`<stop offset="%g" stop-color="%s"`,
-			stop.Offset, colorToCSS(stop.Color)))
+			stop.Offset, colorToCSS(stop.Color))
 		if stop.Color.A < 1.0 {
-			b.defs.WriteString(fmt.Sprintf(` stop-opacity="%g"`, stop.Color.A))
+			fmt.Fprintf(&b.defs, ` stop-opacity="%g"`, stop.Color.A)
 		}
 		b.defs.WriteString(`/>`)
 	}
@@ -522,9 +522,9 @@ func (b *Backend) addLinearGradient(br *recording.LinearGradientBrush) string {
 func (b *Backend) addRadialGradient(br *recording.RadialGradientBrush) string {
 	gradID := b.nextID("rg")
 
-	b.defs.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&b.defs,
 		`<radialGradient id="%s" gradientUnits="userSpaceOnUse" cx="%g" cy="%g" r="%g" fx="%g" fy="%g">`,
-		gradID, br.Center.X, br.Center.Y, br.EndRadius, br.Focus.X, br.Focus.Y))
+		gradID, br.Center.X, br.Center.Y, br.EndRadius, br.Focus.X, br.Focus.Y)
 
 	// Handle spread mode
 	switch br.Extend {
@@ -535,11 +535,11 @@ func (b *Backend) addRadialGradient(br *recording.RadialGradientBrush) string {
 	}
 
 	for _, stop := range br.Stops {
-		b.defs.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&b.defs,
 			`<stop offset="%g" stop-color="%s"`,
-			stop.Offset, colorToCSS(stop.Color)))
+			stop.Offset, colorToCSS(stop.Color))
 		if stop.Color.A < 1.0 {
-			b.defs.WriteString(fmt.Sprintf(` stop-opacity="%g"`, stop.Color.A))
+			fmt.Fprintf(&b.defs, ` stop-opacity="%g"`, stop.Color.A)
 		}
 		b.defs.WriteString(`/>`)
 	}
