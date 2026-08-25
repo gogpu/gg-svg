@@ -2,7 +2,7 @@ module github.com/gogpu/gg-svg
 
 go 1.25.5
 
-require github.com/gogpu/gg v0.52.3
+require github.com/gogpu/gg v0.52.5
 
 require (
 	github.com/gogpu/gpucontext v0.28.0 // indirect
