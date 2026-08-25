@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-25
+
+### Added
+
+- **Clip path intersection** (#3, @besmpl) — successive `SetClip` calls now generate nested `<g clip-path="...">` groups for correct SVG intersection semantics
+
+### Fixed
+
+- **SVG transform matrix order** (#2, @besmpl) — coefficient order corrected to match SVG `matrix(a,b,c,d,e,f)` spec
+- **Image source rectangles** (#1, @besmpl) — `DrawImage` now honors crop rectangles in SVG output
+- **Path API migration** — updated from `Path.Elements()` to `Path.Iterate()` for gg v0.52.3 compatibility
+
+### Changed
+
+- **deps:** gg v0.23.0 → v0.52.3, gpucontext v0.6.0 → v0.28.0, gputypes v0.2.0 → v0.5.2
+- **style:** replaced `WriteString(Sprintf)` with `Fprintf` (QF1012)
+
+[0.2.0]: https://github.com/gogpu/gg-svg/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-02-03
 
 ### Added

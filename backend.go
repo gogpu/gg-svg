@@ -479,24 +479,23 @@ func (b *Backend) nextID(prefix string) string {
 func (b *Backend) pathToD(path *gg.Path) string {
 	var d strings.Builder
 
-	for _, elem := range path.Elements() {
-		switch e := elem.(type) {
+	path.Iterate(func(verb gg.PathVerb, coords []float64) {
+		switch verb {
 		case gg.MoveTo:
-			fmt.Fprintf(&d, "M%g %g", e.Point.X, e.Point.Y)
+			fmt.Fprintf(&d, "M%g %g", coords[0], coords[1])
 		case gg.LineTo:
-			fmt.Fprintf(&d, "L%g %g", e.Point.X, e.Point.Y)
+			fmt.Fprintf(&d, "L%g %g", coords[0], coords[1])
 		case gg.QuadTo:
 			fmt.Fprintf(&d, "Q%g %g %g %g",
-				e.Control.X, e.Control.Y, e.Point.X, e.Point.Y)
+				coords[0], coords[1], coords[2], coords[3])
 		case gg.CubicTo:
 			fmt.Fprintf(&d, "C%g %g %g %g %g %g",
-				e.Control1.X, e.Control1.Y,
-				e.Control2.X, e.Control2.Y,
-				e.Point.X, e.Point.Y)
+				coords[0], coords[1], coords[2], coords[3],
+				coords[4], coords[5])
 		case gg.Close:
 			d.WriteString("Z")
 		}
-	}
+	})
 
 	return d.String()
 }
