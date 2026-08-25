@@ -3,6 +3,7 @@ package svg
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/xml"
 	"image"
 	"image/color"
 	"image/png"
@@ -354,12 +355,206 @@ func TestBackendClip(t *testing.T) {
 	}
 
 	svg := buf.String()
-	if !strings.Contains(svg, "<clipPath") {
+	if !strings.Contains(svg, `<clipPath id="clip1" clipPathUnits="userSpaceOnUse">`) {
 		t.Error("Output should contain clipPath element")
 	}
 	if !strings.Contains(svg, `clip-path="url(#`) {
 		t.Error("Output should reference clip path")
 	}
+}
+
+func TestBackendClipIntersectionCapturesTransforms(t *testing.T) {
+	backend := NewBackend()
+	if err := backend.Begin(100, 100); err != nil {
+		t.Fatalf("Begin failed: %v", err)
+	}
+
+	first := gg.NewPath()
+	first.Rectangle(0, 0, 60, 100)
+	backend.SetTransform(recording.Translate(10, 0))
+	backend.SetClip(first, recording.FillRuleNonZero)
+
+	second := gg.NewPath()
+	second.Rectangle(0, 0, 100, 60)
+	backend.SetTransform(recording.Translate(0, 20))
+	backend.SetClip(second, recording.FillRuleEvenOdd)
+
+	backend.SetTransform(recording.Translate(5, 5))
+	backend.FillRect(
+		recording.NewRect(0, 0, 90, 90),
+		recording.NewSolidBrush(gg.RGBA{R: 1, A: 1}),
+	)
+
+	svg := backendSVG(t, backend)
+	if !strings.Contains(svg, `<clipPath id="clip1" clipPathUnits="userSpaceOnUse"><path transform="matrix(1,0,0,1,10,0)" d="M0 0L60 0L60 100L0 100Z"/></clipPath>`) {
+		t.Errorf("first clip did not capture its transform:\n%s", svg)
+	}
+	if !strings.Contains(svg, `<clipPath id="clip2" clipPathUnits="userSpaceOnUse"><path transform="matrix(1,0,0,1,0,20)" d="M0 0L100 0L100 60L0 60Z" clip-rule="evenodd"/></clipPath>`) {
+		t.Errorf("second clip did not capture its transform and fill rule:\n%s", svg)
+	}
+	want := `<g clip-path="url(#clip1)"><g clip-path="url(#clip2)"><rect transform="matrix(1,0,0,1,5,5)" x="0" y="0" width="90" height="90" fill="rgb(255,0,0)" stroke="none"/></g></g>`
+	if !strings.Contains(svg, want) {
+		t.Errorf("successive clips were not emitted as an intersection; want %q in:\n%s", want, svg)
+	}
+	requireValidSVG(t, svg)
+}
+
+func TestBackendClipNilAndEmptyPaths(t *testing.T) {
+	backend := NewBackend()
+	if err := backend.Begin(20, 20); err != nil {
+		t.Fatalf("Begin failed: %v", err)
+	}
+
+	backend.SetClip(nil, recording.FillRuleNonZero)
+	backend.SetClip(gg.NewPath(), recording.FillRuleNonZero)
+	backend.FillRect(
+		recording.NewRect(0, 0, 20, 20),
+		recording.NewSolidBrush(gg.RGBA{R: 1, A: 1}),
+	)
+
+	svg := backendSVG(t, backend)
+	if got := strings.Count(svg, `<clipPath id=`); got != 1 {
+		t.Fatalf("nil/empty paths created %d clip definitions, want one empty clip:\n%s", got, svg)
+	}
+	if !strings.Contains(svg, `<clipPath id="clip1" clipPathUnits="userSpaceOnUse"><path d=""/></clipPath>`) {
+		t.Errorf("empty path did not create an empty clipping region:\n%s", svg)
+	}
+	if !strings.Contains(svg, `<g clip-path="url(#clip1)"><rect`) {
+		t.Errorf("empty clipping region was not applied to subsequent drawing:\n%s", svg)
+	}
+	requireValidSVG(t, svg)
+}
+
+func TestBackendClipSaveRestoreAndClear(t *testing.T) {
+	backend := NewBackend()
+	if err := backend.Begin(100, 100); err != nil {
+		t.Fatalf("Begin failed: %v", err)
+	}
+
+	clip := func(x float64) {
+		path := gg.NewPath()
+		path.Rectangle(x, 0, 20, 100)
+		backend.SetClip(path, recording.FillRuleNonZero)
+	}
+	red := recording.NewSolidBrush(gg.RGBA{R: 1, A: 1})
+	blue := recording.NewSolidBrush(gg.RGBA{B: 1, A: 1})
+	green := recording.NewSolidBrush(gg.RGBA{G: 1, A: 1})
+	rect := recording.NewRect(0, 0, 100, 100)
+
+	clip(0)  // clip1
+	clip(10) // clip2
+	backend.Save()
+	backend.ClearClip()
+	clip(20) // clip3; must not overwrite the saved clip slice
+	backend.FillRect(rect, red)
+	backend.Restore()
+	backend.FillRect(rect, blue)
+	backend.ClearClip()
+	backend.FillRect(rect, green)
+
+	svg := backendSVG(t, backend)
+	insideSave := `<g><g clip-path="url(#clip3)"><rect x="0" y="0" width="100" height="100" fill="rgb(255,0,0)" stroke="none"/></g></g>`
+	if !strings.Contains(svg, insideSave) {
+		t.Errorf("ClearClip did not replace the active saved-scope clips:\n%s", svg)
+	}
+	restored := `<g clip-path="url(#clip1)"><g clip-path="url(#clip2)"><rect x="0" y="0" width="100" height="100" fill="rgb(0,0,255)" stroke="none"/></g></g>`
+	if !strings.Contains(svg, restored) {
+		t.Errorf("Restore did not recover the complete clip intersection:\n%s", svg)
+	}
+	unclipped := `<rect x="0" y="0" width="100" height="100" fill="rgb(0,255,0)" stroke="none"/>`
+	if !strings.Contains(svg, restored+unclipped) {
+		t.Errorf("ClearClip did not remove every active clip after Restore:\n%s", svg)
+	}
+	requireValidSVG(t, svg)
+}
+
+func TestBackendClipAppliesToEveryDrawable(t *testing.T) {
+	backend := NewBackend()
+	if err := backend.Begin(100, 100); err != nil {
+		t.Fatalf("Begin failed: %v", err)
+	}
+
+	first := gg.NewPath()
+	first.Rectangle(0, 0, 80, 100)
+	backend.SetClip(first, recording.FillRuleNonZero)
+	second := gg.NewPath()
+	second.Rectangle(0, 0, 100, 80)
+	backend.SetClip(second, recording.FillRuleNonZero)
+
+	path := gg.NewPath()
+	path.Rectangle(0, 0, 100, 100)
+	brush := recording.NewSolidBrush(gg.RGBA{R: 1, A: 1})
+	backend.FillPath(path, brush, recording.FillRuleNonZero)
+	backend.StrokePath(path, brush, recording.DefaultStroke())
+	backend.FillRect(recording.NewRect(0, 0, 100, 100), brush)
+	backend.DrawImage(
+		image.NewRGBA(image.Rect(0, 0, 1, 1)),
+		recording.NewRect(0, 0, 1, 1),
+		recording.NewRect(0, 0, 100, 100),
+		recording.DefaultImageOptions(),
+	)
+	backend.DrawText("clipped <&", 0, 20, nil, brush)
+
+	svg := backendSVG(t, backend)
+	prefix := `<g clip-path="url(#clip1)"><g clip-path="url(#clip2)">`
+	if got := strings.Count(svg, prefix); got != 5 {
+		t.Fatalf("clip intersection wrapped %d drawable types, want 5:\n%s", got, svg)
+	}
+	for _, element := range []string{"<path", "<rect", "<image", "<text"} {
+		if !strings.Contains(svg, prefix+element) {
+			t.Errorf("%s output was not clipped by the full intersection:\n%s", element, svg)
+		}
+	}
+	if !strings.Contains(svg, `>clipped &lt;&amp;</text>`) {
+		t.Errorf("clipped text content was not XML escaped:\n%s", svg)
+	}
+	requireValidSVG(t, svg)
+}
+
+func TestRecordingPlaybackClipUsesWorldSpace(t *testing.T) {
+	recorder := recording.NewRecorder(100, 100)
+	recorder.Translate(10, 0)
+	recorder.DrawRectangle(0, 0, 60, 100)
+	recorder.Clip()
+	recorder.Identity()
+	recorder.Translate(0, 20)
+	recorder.DrawRectangle(0, 0, 100, 60)
+	recorder.Clip()
+	recorder.Identity()
+	recorder.SetFillRGBA(1, 0, 0, 1)
+	recorder.FillRectangle(0, 0, 100, 100)
+
+	backend, err := recording.NewBackend("svg")
+	if err != nil {
+		t.Fatalf("NewBackend failed: %v", err)
+	}
+	if err := recorder.FinishRecording().Playback(backend); err != nil {
+		t.Fatalf("Playback failed: %v", err)
+	}
+	writer, ok := backend.(recording.WriterBackend)
+	if !ok {
+		t.Fatal("registered SVG backend does not implement recording.WriterBackend")
+	}
+	var buf bytes.Buffer
+	if _, err := writer.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	svg := buf.String()
+	if strings.Contains(svg, ` transform="matrix(`) {
+		t.Errorf("recorder world-space clips or geometry were transformed twice:\n%s", svg)
+	}
+	if !strings.Contains(svg, `<clipPath id="clip1" clipPathUnits="userSpaceOnUse"><path d="M10 0L70 0L70 100L10 100Z"/></clipPath>`) {
+		t.Errorf("first recorder clip was not emitted in world space:\n%s", svg)
+	}
+	if !strings.Contains(svg, `<clipPath id="clip2" clipPathUnits="userSpaceOnUse"><path d="M0 20L100 20L100 80L0 80Z"/></clipPath>`) {
+		t.Errorf("second recorder clip was not emitted in world space:\n%s", svg)
+	}
+	want := `<g clip-path="url(#clip1)"><g clip-path="url(#clip2)"><rect x="0" y="0" width="100" height="100" fill="rgb(255,0,0)" stroke="none"/></g></g>`
+	if !strings.Contains(svg, want) {
+		t.Errorf("recorder clips were not intersected:\n%s", svg)
+	}
+	requireValidSVG(t, svg)
 }
 
 func TestBackendTransform(t *testing.T) {
@@ -1038,6 +1233,31 @@ func TestSweepGradientFallback(t *testing.T) {
 	// Should fallback to first stop color (red)
 	if !strings.Contains(svg, `fill="rgb(255,0,0)"`) {
 		t.Error("Sweep gradient should fallback to first stop color")
+	}
+}
+
+func backendSVG(t *testing.T, backend *Backend) string {
+	t.Helper()
+	if err := backend.End(); err != nil {
+		t.Fatalf("End failed: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := backend.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+	return buf.String()
+}
+
+func requireValidSVG(t *testing.T, svg string) {
+	t.Helper()
+	var document struct {
+		XMLName xml.Name
+	}
+	if err := xml.Unmarshal([]byte(svg), &document); err != nil {
+		t.Fatalf("output is not well-formed XML: %v\n%s", err, svg)
+	}
+	if document.XMLName.Local != "svg" {
+		t.Fatalf("output root is %q, want svg", document.XMLName.Local)
 	}
 }
 

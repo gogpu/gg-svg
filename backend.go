@@ -75,13 +75,13 @@ type Backend struct {
 
 	// Current graphics state
 	currentTransform recording.Matrix
-	currentClipID    string
+	currentClipIDs   []string
 }
 
 // backendState stores the graphics state for Save/Restore operations.
 type backendState struct {
 	transform recording.Matrix
-	clipID    string
+	clipIDs   []string
 }
 
 // NewBackend creates a new SVG backend.
@@ -116,7 +116,7 @@ func (b *Backend) Begin(width, height int) error {
 	b.idCounter = 0
 	b.stateStack = b.stateStack[:0]
 	b.currentTransform = recording.Identity()
-	b.currentClipID = ""
+	b.currentClipIDs = b.currentClipIDs[:0]
 
 	return nil
 }
@@ -130,7 +130,7 @@ func (b *Backend) End() error {
 func (b *Backend) Save() {
 	b.stateStack = append(b.stateStack, backendState{
 		transform: b.currentTransform,
-		clipID:    b.currentClipID,
+		clipIDs:   append([]string(nil), b.currentClipIDs...),
 	})
 	b.builder.WriteString("<g>")
 	b.groupDepth++
@@ -146,7 +146,7 @@ func (b *Backend) Restore() {
 	b.stateStack = b.stateStack[:len(b.stateStack)-1]
 
 	b.currentTransform = state.transform
-	b.currentClipID = state.clipID
+	b.currentClipIDs = state.clipIDs
 
 	if b.groupDepth > 0 {
 		b.builder.WriteString("</g>")
@@ -159,18 +159,21 @@ func (b *Backend) SetTransform(m recording.Matrix) {
 	b.currentTransform = m
 }
 
-// SetClip sets the clipping region to the given path.
+// SetClip intersects the current clipping region with the given path.
 func (b *Backend) SetClip(path *gg.Path, rule recording.FillRule) {
 	if path == nil {
 		return
 	}
 
 	clipID := b.nextID("clip")
-	b.currentClipID = clipID
+	b.currentClipIDs = append(b.currentClipIDs, clipID)
 
-	// Write clip path definition
-	fmt.Fprintf(&b.defs, `<clipPath id="%s">`, clipID)
-	fmt.Fprintf(&b.defs, `<path d="%s"`, b.pathToD(path))
+	// Capture the clip-time transform in the definition. Draw elements use
+	// their own transforms inside untransformed clip wrapper groups.
+	fmt.Fprintf(&b.defs, `<clipPath id="%s" clipPathUnits="userSpaceOnUse">`, clipID)
+	b.defs.WriteString(`<path`)
+	b.writeTransformTo(&b.defs)
+	fmt.Fprintf(&b.defs, ` d="%s"`, b.pathToD(path))
 	if rule == recording.FillRuleEvenOdd {
 		b.defs.WriteString(` clip-rule="evenodd"`)
 	}
@@ -179,7 +182,7 @@ func (b *Backend) SetClip(path *gg.Path, rule recording.FillRule) {
 
 // ClearClip removes any clipping region.
 func (b *Backend) ClearClip() {
-	b.currentClipID = ""
+	b.currentClipIDs = b.currentClipIDs[:0]
 }
 
 // FillPath fills the given path with the brush color/pattern.
@@ -188,9 +191,9 @@ func (b *Backend) FillPath(path *gg.Path, brush recording.Brush, rule recording.
 		return
 	}
 
+	b.openClipGroups()
 	b.builder.WriteString("<path")
 	b.writeTransform()
-	b.writeClip()
 	fmt.Fprintf(&b.builder, ` d="%s"`, b.pathToD(path))
 	b.writeFill(brush)
 	if rule == recording.FillRuleEvenOdd {
@@ -198,6 +201,7 @@ func (b *Backend) FillPath(path *gg.Path, brush recording.Brush, rule recording.
 	}
 	b.builder.WriteString(` stroke="none"`)
 	b.builder.WriteString("/>")
+	b.closeClipGroups()
 }
 
 // StrokePath strokes the given path with the brush and stroke style.
@@ -206,25 +210,27 @@ func (b *Backend) StrokePath(path *gg.Path, brush recording.Brush, stroke record
 		return
 	}
 
+	b.openClipGroups()
 	b.builder.WriteString("<path")
 	b.writeTransform()
-	b.writeClip()
 	fmt.Fprintf(&b.builder, ` d="%s"`, b.pathToD(path))
 	b.builder.WriteString(` fill="none"`)
 	b.writeStroke(brush, stroke)
 	b.builder.WriteString("/>")
+	b.closeClipGroups()
 }
 
 // FillRect fills an axis-aligned rectangle with the brush.
 func (b *Backend) FillRect(rect recording.Rect, brush recording.Brush) {
+	b.openClipGroups()
 	b.builder.WriteString("<rect")
 	b.writeTransform()
-	b.writeClip()
 	fmt.Fprintf(&b.builder, ` x="%g" y="%g" width="%g" height="%g"`,
 		rect.MinX, rect.MinY, rect.Width(), rect.Height())
 	b.writeFill(brush)
 	b.builder.WriteString(` stroke="none"`)
 	b.builder.WriteString("/>")
+	b.closeClipGroups()
 }
 
 // DrawImage draws an image from the source rectangle to the destination rectangle.
@@ -248,9 +254,9 @@ func (b *Backend) DrawImage(img image.Image, src, dst recording.Rect, opts recor
 	}
 	dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
 
+	b.openClipGroups()
 	b.builder.WriteString("<image")
 	b.writeTransform()
-	b.writeClip()
 	fmt.Fprintf(&b.builder, ` x="%g" y="%g" width="%g" height="%g"`,
 		dst.MinX, dst.MinY, dst.Width(), dst.Height())
 	fmt.Fprintf(&b.builder, ` href="%s"`, dataURI)
@@ -261,6 +267,7 @@ func (b *Backend) DrawImage(img image.Image, src, dst recording.Rect, opts recor
 
 	b.builder.WriteString(` preserveAspectRatio="none"`)
 	b.builder.WriteString("/>")
+	b.closeClipGroups()
 }
 
 // cropImage returns an image containing the source rectangle and the
@@ -360,9 +367,9 @@ func maxInt(a, b int) int {
 
 // DrawText draws text at the given position with the specified font face and brush.
 func (b *Backend) DrawText(s string, x, y float64, face text.Face, brush recording.Brush) {
+	b.openClipGroups()
 	b.builder.WriteString("<text")
 	b.writeTransform()
-	b.writeClip()
 	fmt.Fprintf(&b.builder, ` x="%g" y="%g"`, x, y)
 
 	// Font settings
@@ -385,6 +392,7 @@ func (b *Backend) DrawText(s string, x, y float64, face text.Face, brush recordi
 	b.builder.WriteString(">")
 	b.builder.WriteString(escapeXML(s))
 	b.builder.WriteString("</text>")
+	b.closeClipGroups()
 }
 
 // WriteTo writes the SVG to the given writer.
@@ -495,6 +503,13 @@ func (b *Backend) pathToD(path *gg.Path) string {
 
 // writeTransform writes the transform attribute if not identity.
 func (b *Backend) writeTransform() {
+	b.writeTransformTo(&b.builder)
+}
+
+// writeTransformTo writes the current transform to dst when this backend
+// receives local-space geometry. Registered recorder playback supplies
+// world-space geometry and disables transform emission.
+func (b *Backend) writeTransformTo(dst *strings.Builder) {
 	if !b.emitTransforms {
 		return
 	}
@@ -502,14 +517,23 @@ func (b *Backend) writeTransform() {
 	if m.IsIdentity() {
 		return
 	}
-	fmt.Fprintf(&b.builder, ` transform="matrix(%g,%g,%g,%g,%g,%g)"`,
+	fmt.Fprintf(dst, ` transform="matrix(%g,%g,%g,%g,%g,%g)"`,
 		m.A, m.D, m.B, m.E, m.C, m.F)
 }
 
-// writeClip writes the clip-path attribute if set.
-func (b *Backend) writeClip() {
-	if b.currentClipID != "" {
-		fmt.Fprintf(&b.builder, ` clip-path="url(#%s)"`, b.currentClipID)
+// openClipGroups opens one group per active clip. Nested clipped groups are
+// used instead of chained clipPath definitions because some SVG renderers do
+// not implement clip-path on clipPath elements.
+func (b *Backend) openClipGroups() {
+	for _, clipID := range b.currentClipIDs {
+		fmt.Fprintf(&b.builder, `<g clip-path="url(#%s)">`, clipID)
+	}
+}
+
+// closeClipGroups closes groups opened by openClipGroups.
+func (b *Backend) closeClipGroups() {
+	for range b.currentClipIDs {
+		b.builder.WriteString(`</g>`)
 	}
 }
 
