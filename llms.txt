@@ -1,0 +1,25 @@
+# gg-svg
+
+> SVG export backend for gg's recording system. A blank import registers the "svg" backend: draw with
+> `recording.Recorder` (the gg drawing API), then play the recording back into `recording.NewBackend("svg")` and save
+> it. Supports solid fills and strokes, linear and radial gradients with spread modes, fill/stroke/clip paths,
+> transforms, stroke styles (width, cap, join, dashes), Save/Restore as SVG groups, text, and images embedded as PNG
+> data URIs. Output is resolution-independent SVG. Go 1.25+, zero CGO. Pre-1.0: the API may change before v1.0.
+
+## Docs
+
+- [API Reference](https://pkg.go.dev/github.com/gogpu/gg-svg): package documentation
+- [README](https://github.com/gogpu/gg-svg/blob/main/README.md): install, usage, features
+- [CHANGELOG](https://github.com/gogpu/gg-svg/blob/main/CHANGELOG.md): release history
+- [CONTRIBUTING](https://github.com/gogpu/gg-svg/blob/main/CONTRIBUTING.md): how to contribute
+
+## Related
+
+- [gg](https://github.com/gogpu/gg): the 2D graphics library whose recordings this exports
+- [gg/recording](https://pkg.go.dev/github.com/gogpu/gg/recording): the recording API
+- [gg-pdf](https://github.com/gogpu/gg-pdf): PDF export backend
+
+## Ecosystem
+
+- [GoGPU ecosystem](https://github.com/gogpu): all modules
+- [Open Collective](https://opencollective.com/gogpu): support development
